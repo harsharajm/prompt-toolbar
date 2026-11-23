@@ -19,13 +19,14 @@ One pane at a time: opening one closes the others.
 
 ## Install
 
-Made for the Claude desktop app, on Claude Code 2.1.330 or newer (the version it was built and tested on).
+Made for the Claude desktop app, on Claude Code 2.1.330 or newer (the version it was built and tested on). The install commands work from older command lines too.
 
 1. In a terminal, run:
 
    ```
-   claude plugin install quiz-pane --marketplace harsharajm/prompt-toolbar
-   claude plugin install theme-picker --marketplace harsharajm/prompt-toolbar
+   claude plugin marketplace add https://github.com/harsharajm/prompt-toolbar.git
+   claude plugin install quiz-pane@prompt-toolbar
+   claude plugin install theme-picker@prompt-toolbar
    ```
 
 2. Open a new chat in the desktop app, or type `/reload-plugins` in an open one.
@@ -72,5 +73,6 @@ claude plugin marketplace remove prompt-toolbar
 
 ## Credits and licences
 
-- theme-picker is a fork of Anthropic's theme-examples 0.6.0, under the Apache License 2.0. See `plugins/theme-picker/LICENSE`, and its README for what the fork changes.
+- The toolbar's own code is under the MIT License in `LICENSE`.
+- theme-picker is a fork of Anthropic's theme-examples 0.6.0 and stays under the Apache License 2.0. See `plugins/theme-picker/LICENSE`, and its README for what the fork changes.
 - The Agents panel's crabs are adapted from savvy-progress by johnnyvizz, under the MIT License. The notice is at the top of `plugins/quiz-pane/hooks/crabs.ts`.
