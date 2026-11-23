@@ -1,0 +1,19 @@
+{
+  "name": "prompt-toolbar",
+  "owner": { "name": "mhars" },
+  "metadata": {
+    "description": "A toolbar above the prompt for the Claude desktop app: Agents, Quiz, Compact, Side chat and Themes."
+  },
+  "plugins": [
+    {
+      "name": "quiz-pane",
+      "source": "./plugins/quiz-pane",
+      "description": "A toolbar above the prompt (Agents, Quiz, Compact, Side chat, Themes) and a quiz pane beside the chat."
+    },
+    {
+      "name": "theme-picker",
+      "source": "./plugins/theme-picker",
+      "description": "Backdrops behind the chat, picked from a grid of previews; the toolbar's Themes button opens it. A fork of Anthropic's theme-examples."
+    }
+  ]
+}

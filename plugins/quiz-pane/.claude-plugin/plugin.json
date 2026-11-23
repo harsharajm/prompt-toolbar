@@ -1,0 +1,6 @@
+{
+  "name": "quiz-pane",
+  "version": "0.12.1",
+  "description": "A quiz pane beside the chat (question plus clickable options, auto-advancing on a correct answer) and a toolbar above the prompt: Agents, Quiz, Compact, Side chat and Themes.",
+  "types": "./types/index.d.ts"
+}
