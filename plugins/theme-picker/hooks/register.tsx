@@ -1,18 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { Elements, EngineInterface, Register, Timer } from 'claude-code'
+import type { Elements, EngineInterface, Register } from 'claude-code'
 
-import {
-  NIGHT_GLASS,
-  NIGHT_ID,
-  SHOW_SUFFIXES,
-  WORD,
-  nightScene,
-  sceneWithFireworks,
-  themeIdOfShow,
-} from './fireworks'
 import { loadAddedThemes } from './added-themes'
 import type { AddedReport } from './added-themes'
-import { overShader } from './interactive'
+import { atRest, previewAtRest } from './rest'
 import type { Sound } from './sounds'
 import { THEMES, sceneFault, sceneOf } from './themes'
 import type { Theme } from './themes'
@@ -28,16 +19,6 @@ const OWN_COMMAND = 'themes'
 const COLUMNS = 4
 // Where a pick on the picker applies, as the person last chose it: kept across sessions.
 const SCOPE_KEY = 'picker:scope'
-// A scene's own rule for reduced motion. Forced on, it gives the scene's resting picture, which a preview shows.
-const RESTING_RULE = /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g
-const FIREWORKS_COMMAND = 'fireworks'
-const SHOW_MS = 7000
-// The desktop app starts a moving picture about two and a half seconds after a shader leaves the window, so a show over
-// a theme with a shader runs that much longer, or its last bursts are cut. Where its shader was not playing, the show
-// only ends on the theme's own still for that long.
-const SHADER_PARTING_MS = 2500
-// Holds 'off' where the person turned the show on the word off; absent, it is on. One key for every session and project.
-const AUTO_KEY = 'fireworks:auto'
 const SESSION_PREFIX = 'session:'
 // How many sessions' own choices the store keeps: past it, the one written longest ago goes.
 const SESSIONS_KEPT = 200
@@ -47,18 +28,14 @@ const SESSIONS_KEPT = 200
 // whether or not the theme shows, and never say why.
 const UNSHOWN = 'If no theme shows, this window may not draw themes yet'
 const KEPT_UNSHOWN = `${UNSHOWN}. Your choice is saved.`
-const SHOW_UNSHOWN = 'If none shows, this window may not draw them yet.'
-// The module's own variables start over on a reload: so does a show in flight, which is fine for a show.
-// `starting` from the tick a show is asked for until its timer stands: see `fireworks`.
-let showEnding: Timer | 'starting' | undefined
-let showCount = 0
 // The loader's scan reads these references: both names are written as string literals.
 const choice = atom({ plugin: 'theme-picker', key: 'choice' } as const, {}, {
   shape: 'choice-1',
 })
-// The tag changes with the value's fields: a reload declines what an earlier version stored (view-1 had pages).
+// The tag changes with the value's fields: a reload declines what an earlier version stored (view-1 had pages, view-2
+// could hold the pointer filter, gone with the shaders).
 const view = atom({ plugin: 'theme-picker', key: 'view' } as const, { filter: 'all', scope: 'session', rev: 0 }, {
-  shape: 'view-2',
+  shape: 'view-3',
 })
 
 /** What a set comes to on any engine, as far as this mod reads it: drawn or not. */
@@ -110,13 +87,9 @@ function newestShape(backdrop: BackdropChoice): Record<string, unknown> {
   }
 }
 
-/** Notes that the engine took a set in the newest shape. */
-function learnNewest(backdrop: BackdropChoice): void {
-  // With no kind to hand over this shape is the next one's too: it tells nothing of the engine, so nothing is learnt.
-  // A belt: learnt wrongly here, the next set with a kind would be refused once and the ways walked anew.
-  if (backdrop.colorScheme !== undefined) {
-    taken = 'beside'
-  }
+/** Notes that the engine took a set in the newest shape: every set names the window's kind (backdropOf). */
+function learnNewest(): void {
+  taken = 'beside'
 }
 
 /**
@@ -136,7 +109,7 @@ async function setByAWay($: AnyEngine, backdrop: BackdropChoice): Promise<Backdr
       // @ts-expect-error An engine may lack this call: see AnyEngine.
       const set = await $.theme.set(shape)
 
-      learnNewest(backdrop)
+      learnNewest()
 
       return set
     } catch (error) {
@@ -259,7 +232,7 @@ async function setBackdrop($: AnyEngine, backdrop: BackdropChoice): Promise<Back
     // @ts-expect-error An engine may lack this call: see AnyEngine.
     const set = await $.theme.set(shape)
 
-    learnNewest(backdrop)
+    learnNewest()
 
     return set
   } catch (error) {
@@ -271,8 +244,8 @@ async function setBackdrop($: AnyEngine, backdrop: BackdropChoice): Promise<Back
   if (isEngineWithoutSound(failure)) {
     engineLacksSound = true
   } else if (taken === 'beside') {
-    // Told only where the newest way took the theme. A show bears its theme's sound under the show's own id: the theme is the one to name.
-    await tellSoundFailure($, themeIdOfShow(backdrop.id) ?? backdrop.id, reasonOf(failure))
+    // Told only where the newest way took the theme.
+    await tellSoundFailure($, backdrop.id, reasonOf(failure))
   }
 
   return set
@@ -395,15 +368,15 @@ function themeList(): string {
   ].join('\n')
 }
 
-/** What a set of a theme's backdrop carries. `id`: the theme's own, or a show's over it. */
-function backdropOf(theme: Theme, id = theme.id): BackdropChoice {
-  return { id, glass: theme.glass, colorScheme: theme.window, sound: theme.sound }
+/** What a set of a theme's backdrop carries. */
+function backdropOf(theme: Theme): BackdropChoice {
+  return { id: theme.id, glass: theme.glass, colorScheme: theme.window, sound: theme.sound }
 }
 
 /**
  * Shows a theme behind the chat, or with none clears the session's theme, and answers what a set came to.
  * A clear takes away whatever theme stands, whichever mod set it, so `show` is given none only on a person's ask
- * (off, a preview's end, a show's end) or to take a theme of this mod's own away, never over a window it left bare.
+ * (off, a preview's end) or to take a theme of this mod's own away, never over a window it left bare.
  */
 async function show($: EngineInterface, id: string | undefined): Promise<BackdropAnswer | undefined> {
   const theme = themeOf(id)
@@ -662,7 +635,7 @@ async function followChoice($: EngineInterface): Promise<void> {
   const project = await allChatsChoice($)
   const isOwn = now.scope === 'session' || (now.scope === undefined && now.applied !== undefined && now.applied !== project)
 
-  if (now.preview !== undefined || showEnding !== undefined) {
+  if (now.preview !== undefined) {
     return
   }
 
@@ -698,116 +671,14 @@ async function followChoice($: EngineInterface): Promise<void> {
   )
 }
 
-/**
- * Ends a show: back to the theme the session shows, or to no backdrop where it has none.
- * The flag is let go only once the window is back, however that went: an ask that came while the end waited on the
- * engine would else start a show that this end then draws over.
- */
-async function endFireworks($: EngineInterface): Promise<void> {
-  try {
-    const later = await read($, choice)
-
-    await showThenKeep($, later.preview ?? later.applied)
-  } finally {
-    showEnding = undefined
-  }
-}
-
-/**
- * Seven seconds of fireworks over the session's theme where it has one, else over a night sky of their own; SHADER_PARTING_MS longer over a theme with a shader.
- * ONE SHOW AT A TIME: a word or a command that comes while a show runs starts nothing and lengthens nothing, so
- * however often the word is said the window changes twice in a show's seconds and no oftener.
- * The flag is TAKEN IN THE SAME TICK AS IT IS TESTED, ahead of the first await: a command and a reply's block come on
- * their own clocks, and a second ask that came while the first waited on the engine would else pass the test too.
- * KNOWN: the timer's call stands outside the try. It throws only where the mod is already unloaded, and this load's
- * flag goes with the load. A wait that another mod's hook refuses is not thrown here, it is never run: the flag then
- * stays up, with no further show and no following of the project, until a reload.
- * A show that no surface says it draws runs its seconds all the same: a window may draw it without having said so.
- * The answer then bears one sentence more.
- */
-async function fireworks($: EngineInterface): Promise<string> {
-  if (showEnding !== undefined) {
-    return 'Fireworks are already going.'
-  }
-
-  showEnding = 'starting'
-  showCount += 1
-
-  // The theme stays: a show is a sibling backdrop that draws the theme's scene with the bursts over it.
-  const suffix = SHOW_SUFFIXES[showCount % SHOW_SUFFIXES.length] ?? SHOW_SUFFIXES[0]
-  // The one setter beside showThenKeep: a show's backdrop is no theme of the table, its answer is told, and nothing is kept, so nothing is to put back.
-  let set: BackdropAnswer
-  let afterShader = false
-
-  try {
-    const now = await read($, choice)
-    const theme = themeOf(now.preview ?? now.applied)
-
-    afterShader = theme?.shader !== undefined
-
-    // The theme's sound goes with its show: a set names the whole theme, and an ambience that is set again unchanged plays on.
-    set = await setBackdrop(
-      $,
-      theme === undefined
-        ? { id: NIGHT_ID, glass: NIGHT_GLASS }
-        : backdropOf(theme, `${theme.id}${suffix}`),
-    )
-  } catch (error) {
-    // A show that did not begin costs a reply nothing, and the next word may try again.
-    showEnding = undefined
-
-    return `Fireworks could not be shown: ${reasonOf(error)}`
-  }
-
-  showEnding = $.clock.after(afterShader ? SHOW_MS + SHADER_PARTING_MS : SHOW_MS, () => void quietly($, () => endFireworks($)))
-
-  return set?.isDrawn === false ? `Fireworks. ${SHOW_UNSHOWN}` : 'Fireworks.'
-}
-
-/**
- * Whether a show may go off by itself on the word: yes, unless the person turned that off.
- * A store that cannot be read counts as off: on a doubt no picture comes unasked.
- */
-async function goesOffByItself($: EngineInterface): Promise<boolean> {
-  try {
-    return (await $.store.get(AUTO_KEY)) !== 'off'
-  } catch {
-    return false
-  }
-}
-
-/** `/fireworks` alone starts a show, whatever the key holds; `auto off` and `auto on` write the key. */
-async function fireworksCommand($: EngineInterface, args: string): Promise<string> {
-  const words = args.trim().toLowerCase().split(/\s+/).join(' ')
-
-  if (words === '') {
-    return fireworks($)
-  }
-
-  if (words !== 'auto off' && words !== 'auto on') {
-    return 'Try /fireworks, /fireworks auto off or /fireworks auto on.'
-  }
-
-  try {
-    await (words === 'auto off' ? $.store.set(AUTO_KEY, 'off') : $.store.delete(AUTO_KEY))
-  } catch (error) {
-    return `That could not be kept: ${reasonOf(error)}`
-  }
-
-  return words === 'auto off'
-    ? 'Fireworks no longer go off by themselves. /fireworks still starts a show.'
-    : 'Fireworks go off again when Claude says "merged".'
-}
-
 /** The elements the picker draws with: a desktop's, or a surface's without `Svg`, which draws the names alone. */
 type PickerElements = Pick<Elements['desktop'], 'Box' | 'Text' | 'Button'> & { Svg?: Elements['desktop']['Svg'] }
 
-/** The picker's filters: every theme, the kind of window each is made for, the scenes that answer the pointer, the added ones. */
+/** The picker's filters: every theme, the kind of window each is made for, the added ones. */
 const FILTERS: readonly { key: PickerView['filter']; label: string; test: (theme: Theme) => boolean }[] = [
   { key: 'all', label: 'All', test: () => true },
   { key: 'light', label: 'Light window', test: theme => theme.window === 'light' },
   { key: 'dark', label: 'Dark window', test: theme => theme.window === 'dark' },
-  { key: 'pointer', label: 'Answers the pointer', test: theme => theme.shader !== undefined },
   { key: 'added', label: 'Added', test: theme => theme.origin === 'added' },
 ]
 
@@ -831,22 +702,10 @@ const previews = new Map<string, string>()
 // Themes whose preview could not be had: not asked again until a rescan.
 const noPreview = new Set<string>()
 
-/** An added theme's preview, from its scene, already read: the scene at rest, at most 240 by 150, scaled to its slot. */
-function previewFromScene(scene: string): string | undefined {
-  // The scene's own size fills a window; the preview's is its own, so that the Svg takes it up to the slot's width.
-  const preview = scene
-    .replace(RESTING_RULE, '@media all')
-    .replace(
-      /<svg\b([^>]*)>/,
-      (_whole, attributes: string) => `<svg${attributes.replace(/\s(?:width|height)="[^"]*"/g, '')} width="240" height="150">`,
-    )
-
-  return preview.length > 131_072 ? undefined : preview
-}
-
 /**
- * Has a theme's preview at hand. A built-in theme's is a small picture made ahead by tools/build-previews.mjs: the
- * scenes themselves, up to 115,000 characters each, are more than a pane takes in one draw.
+ * Has a theme's preview at hand. A built-in theme's is a small still picture made ahead by tools/build-previews.mjs: the
+ * scenes themselves, up to 115,000 characters each, are more than a pane takes in one draw. An added theme's is held
+ * still like its backdrop (./rest).
  */
 async function loadPreview($: EngineInterface, theme: Theme): Promise<void> {
   if (previews.has(theme.id) || noPreview.has(theme.id)) {
@@ -857,7 +716,7 @@ async function loadPreview($: EngineInterface, theme: Theme): Promise<void> {
     // An added theme's own small preview where its folder has one, else one made from its scene.
     const preview =
       theme.origin === 'added'
-        ? (theme.preview ?? previewFromScene(theme.scene()))
+        ? (theme.preview ?? previewAtRest(theme.scene()))
         : await $.fs.read(`${$.plugin.root}/previews/${theme.id}.svg`)
 
     if (preview === undefined) {
@@ -1060,15 +919,6 @@ export const register: Register = on => {
       void $.ui.toast(`theme-picker: /${OWN_COMMAND} is not available (${String(error)})`)
     }
 
-    try {
-      await $.command.register({
-        name: FIREWORKS_COMMAND,
-        description: 'Set off fireworks. Add "auto off" to stop the automatic ones, "auto on" to resume.',
-      })
-    } catch (error) {
-      void $.ui.toast(`theme-picker: /${FIREWORKS_COMMAND} is not available (${String(error)})`)
-    }
-
     // The added themes first: a stored choice may name one of them.
     await quietly($, async () => {
       lastScan = await loadAddedThemes($)
@@ -1221,62 +1071,24 @@ export const register: Register = on => {
     return opened
   })
 
-  on('command.run', { command: FIREWORKS_COMMAND }, async ($, e) => ({ text: await fireworksCommand($, e.args) }))
-
-  // Every block of the model's reply comes through here once, as text, before it is stored.
-  on('session.append', { door: 'response' }, async ($, e, next) => {
-    const said = e.message.content.some(
-      block => block.type === 'text' && typeof block.text === 'string' && WORD.test(block.text),
-    )
-
-    if (said && (await goesOffByItself($))) {
-      await fireworks($)
-    }
-
-    return next(e)
-  })
-
   on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
     // Only a window has room behind the chat, and only its table has `Svg`.
     if (e.props.plugin !== PLUGIN || e.surface !== 'desktop') {
       return next(e)
     }
 
-    const name = sceneNameOf(e.props)
-
-    if (name === undefined) {
-      return next(e)
-    }
-
-    const { Svg, Shader } = $.ui.resolve(e)
-
-    if (name === NIGHT_ID) {
-      return <Svg isInteractive alt="Fireworks bursting over a night sky" source={nightScene()} />
-    }
-
-    const showOf = themeOf(themeIdOfShow(name))
-
-    if (showOf !== undefined) {
-      return (
-        <Svg
-          isInteractive
-          alt={`Fireworks over ${showOf.title}`}
-          source={sceneWithFireworks(showOf, sceneOf(showOf))}
-        />
-      )
-    }
-
-    const theme = themeOf(name)
+    const theme = themeOf(sceneNameOf(e.props))
 
     if (theme === undefined) {
       return next(e)
     }
 
-    return overShader(
-      Shader,
-      theme.shader,
-      <Svg isInteractive alt={`${theme.title}: ${theme.blurb}`} source={sceneOf(theme)} />,
-    )
+    const { Svg } = $.ui.resolve(e)
+
+    // Always still: the scene's own picture at rest, drawn as a plain image with nothing over it. A backdrop that
+    // moves is redrawn many times a second, and every frosted panel over it with it: measured, about a whole CPU core
+    // while the window shows it. A still one is drawn once.
+    return <Svg alt={`${theme.title}: ${theme.blurb}`} source={atRest(sceneOf(theme))} />
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

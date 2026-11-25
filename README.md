@@ -3,7 +3,7 @@
 A toolbar above the prompt in the Claude desktop app, with five buttons. It is two plugins, installed together:
 
 - **quiz-pane**: the toolbar itself, and the quiz pane.
-- **theme-picker**: the backdrops the Themes button opens.
+- **theme-picker**: the still backdrops the Themes button opens.
 
 ## The buttons
 
@@ -13,7 +13,7 @@ A toolbar above the prompt in the Claude desktop app, with five buttons. It is t
 | Quiz | Opens the quiz pane. Ask Claude to quiz you on something and it loads the questions there: pick an option or type an answer. `/quiz` opens it too. |
 | Compact | Compacts the chat after you confirm. Once the chat passes half its context window (or 120k tokens), the button shows how full it is, for example `Compact 65%`. If Claude is busy, the compact runs as soon as it is idle. |
 | Side chat | A pane for quick questions about the chat. Claude answers from the conversation so far without adding anything to the main chat. |
-| Themes | Opens the theme picker: 38 backdrops for behind the chat, for this chat or for all chats. `/custom-theme` and `/themes` open it too. |
+| Themes | Opens the theme picker: 38 still backdrops for behind the chat, for this chat or for all chats. `/custom-theme` and `/themes` open it too. |
 
 One pane at a time: opening one closes the others.
 
@@ -52,6 +52,7 @@ For a zip you were sent, or **Code → Download ZIP** on GitHub:
 
 - **theme-examples**: if Anthropic's theme-examples plugin is on, turn it off. Both answer `/custom-theme` and both set the backdrop.
 - **savvy-progress**: if it is on, its once-a-second clock makes the toolbar buttons flicker under the pointer. Turning it off stops the flicker.
+- **Still backdrops**: theme-picker draws every backdrop as a still picture, with no animation, shaders or fireworks: measured on a Windows desktop, a moving one kept about one CPU core busy. While Claude is working or the chat scrolls, a backdrop still costs some CPU; **No theme** costs least. See `plugins/theme-picker/README.md`.
 - **Your own themes**: theme-picker can add themes from a folder. See `plugins/theme-picker/README.md`.
 - **Terminal**: the crabs are pictures, so they show only in the desktop app.
 

@@ -1,10 +1,9 @@
 import type { EngineInterface } from 'claude-code'
 
+import { MOST_CHARACTERS, SMIL, ownPreviewAtRest, putAtRest } from './rest'
 import { THEMES, forgetScene } from './themes'
 import type { Theme } from './themes'
 
-// The engine draws a scene of at most this many characters (SvgProps.source).
-const MOST_CHARACTERS = 131_072
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 
 /** What a scan of the added themes' folder came to: the folder read, how many themes it added, and why any was left out. */
@@ -29,8 +28,8 @@ function numberIn(value: unknown, low: number, high: number, fallback: number): 
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(high, Math.max(low, value)) : fallback
 }
 
-/** Why the engine would not draw a scene, in a few words; nothing where it would. */
-function sceneProblem(svg: string): string | undefined {
+/** Why the engine would not draw a scene, or not draw it still, in a few words; nothing where it would. */
+export function sceneProblem(svg: string): string | undefined {
   if (!/^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(svg)) {
     return 'the scene is not an <svg> document'
   }
@@ -45,6 +44,16 @@ function sceneProblem(svg: string): string | undefined {
 
   if (/<script\b|<foreignObject\b/i.test(svg)) {
     return 'the scene holds a script or a foreignObject'
+  }
+
+  // Backdrops are drawn still, and no style stops SMIL.
+  if (SMIL.test(svg)) {
+    return 'the scene moves by SMIL (<animate> and the like), which cannot be held still'
+  }
+
+  // Held still, a scene is a little longer (rest.ts): it must still be one the engine draws.
+  if (putAtRest(svg).length > MOST_CHARACTERS) {
+    return `the scene has ${svg.length} characters: held still it would pass the ${MOST_CHARACTERS} the app draws`
   }
 
   return undefined
@@ -103,10 +112,11 @@ export async function loadAddedThemes($: EngineInterface): Promise<AddedReport> 
         continue
       }
 
-      // A small picture for the picker, where the folder has one: a full scene there would make the page heavy.
+      // A small picture for the picker, where the folder has one: a full scene there would make the page heavy. Held
+      // still like the backdrop; one that cannot be gives way to a preview made from the scene.
       const previewFile = `${dir}/preview.svg`
       const ownPreview = (await $.fs.exists(previewFile)) ? await $.fs.read(previewFile) : undefined
-      const preview = ownPreview !== undefined && /<svg[\s>]/i.test(ownPreview) && ownPreview.length <= MOST_CHARACTERS ? ownPreview : undefined
+      const preview = ownPreview === undefined ? undefined : ownPreviewAtRest(ownPreview)
       const window: Theme['window'] = meta.window === 'light' ? 'light' : 'dark'
       const glass: Record<string, unknown> =
         typeof meta.glass === 'object' && meta.glass !== null ? (meta.glass as Record<string, unknown>) : {}

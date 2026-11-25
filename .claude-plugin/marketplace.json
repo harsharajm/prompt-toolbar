@@ -13,7 +13,7 @@
     {
       "name": "theme-picker",
       "source": "./plugins/theme-picker",
-      "description": "Backdrops behind the chat, picked from a grid of previews; the toolbar's Themes button opens it. A fork of Anthropic's theme-examples."
+      "description": "Still backdrops behind the chat, picked from a grid of previews; the toolbar's Themes button opens it. A fork of Anthropic's theme-examples."
     }
   ]
 }

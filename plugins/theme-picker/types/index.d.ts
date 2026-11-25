@@ -12,7 +12,7 @@ export type ThemeChoice = {
 
 /** What the picker pane shows: its filter, where a pick on it applies, and a count a rescan raises to draw it again. */
 export type PickerView = {
-  filter: 'all' | 'light' | 'dark' | 'pointer' | 'added'
+  filter: 'all' | 'light' | 'dark' | 'added'
   scope: 'session' | 'all'
   rev: number
 }

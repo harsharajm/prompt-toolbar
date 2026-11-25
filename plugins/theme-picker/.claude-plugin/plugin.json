@@ -1,7 +1,7 @@
 {
   "name": "theme-picker",
-  "version": "0.2.2",
-  "description": "Pick a backdrop for the desktop app from a grid of previews: /custom-theme opens a picker beside the chat, and a pick applies to this chat or to all chats. Reads added themes from ~/.claude/theme-picker/themes. A fork of Anthropic's theme-examples.",
+  "version": "0.4.0",
+  "description": "Pick a still backdrop for the desktop app from a grid of previews: /custom-theme opens a picker beside the chat, and a pick applies to this chat or to all chats. Every backdrop is drawn still, with no animation. Reads added themes from ~/.claude/theme-picker/themes. A fork of Anthropic's theme-examples.",
   "license": "Apache-2.0",
   "types": "./types/index.d.ts"
 }
