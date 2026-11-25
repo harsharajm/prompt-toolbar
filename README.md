@@ -9,7 +9,7 @@ A toolbar above the prompt in the Claude desktop app, with five buttons. It is t
 
 | Button | What it does |
 | --- | --- |
-| Agents | A panel with one line per subagent: what it is doing right now, plus its model, effort, time, tokens and cost. Each agent gets a small pixel crab dressed for its current action (reading, writing, searching, running a command, browsing, waiting, ...). Finished agents stay until you clear them. |
+| Agents | A panel with one line per subagent: what it is doing right now, plus its model, effort, time, tokens and cost. Each agent gets a small pixel crab dressed for its current action (reading, writing, searching, running a command, browsing, waiting, ...); the four newest running crabs walk, the rest stand still to save CPU. Finished agents stay until you clear them. |
 | Quiz | Opens the quiz pane. Ask Claude to quiz you on something and it loads the questions there: pick an option or type an answer. `/quiz` opens it too. |
 | Compact | Compacts the chat after you confirm. Once the chat passes half its context window (or 120k tokens), the button shows how full it is, for example `Compact 65%`. If Claude is busy, the compact runs as soon as it is idle. |
 | Side chat | A pane for quick questions about the chat. Claude answers from the conversation so far without adding anything to the main chat. |

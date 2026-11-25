@@ -66,6 +66,7 @@ const AGENTS_KEEP = 100
 const AGENTS_TICK_MS = 2000
 // finished agents that still show their crab, the most recent first; older rows are text alone
 const CRABS_FINISHED = 10
+const CRABS_ANIMATED = 4
 
 const AGENT_WORD: Record<string, string> = {
   pending: 'starting',
@@ -163,12 +164,17 @@ const mergeAgents = (view: AgentsView, list: readonly AgentInfo[], at: number): 
   return { ...view, at, list: kept, hidden }
 }
 
+// no agent was running at the last reading, so the poll reads half as often; an agent's tool call
+// (the tool.call hook) or a fresh reading of a live one sets it back at once
+let agentsIdle = false
+
 // reads the engine's record into the panel's copy. `update` writes even when its change hands the
 // value back, and every write redraws the panel, so the change is worked out first and written
 // only when there is one. Best effort: it never throws, so the panel opens whatever happens here.
 async function refreshAgents($: EngineInterface): Promise<void> {
   try {
     const list = await $.agent.list()
+    agentsIdle = !list.some(a => isLiveAgent(a.status))
     const at = await $.clock.now()
     const held = await read($, agentsView)
     if (mergeAgents(held, list, at) === held) return
@@ -178,20 +184,44 @@ async function refreshAgents($: EngineInterface): Promise<void> {
   }
 }
 
-// while the Agents panel is up the record is read every two seconds. The pane can close without this
-// plugin's ui.close hook hearing it (the plugin's own close skips its own hooks; an unload runs
-// none), so each tick first checks the pane is still up and stops itself when it is not. A reload
-// drops the timer, and session.start starts it again.
+// while the Agents panel is up the record is read every two seconds, every four while no agent runs.
+// The pane can close without this plugin's ui.close hook hearing it (the plugin's own close skips its
+// own hooks; an unload runs none), so every third tick checks the pane is still up and the poll stops
+// itself when it is not. A reload drops the timer, and session.start starts it again.
 let agentsTicker: ReturnType<EngineInterface['clock']['every']> | undefined
+let agentsTick = 0
+// the tick whose reading is still out: the next ticks wait for it, so slow answers never pile up,
+// unless it has been out for AGENTS_STUCK_TICKS (an answer that never came must not stop the poll)
+let agentsOutSince: number | undefined
+// the tick of the last pane check: the next falls due three ticks on and is done by the first tick
+// that runs from then (a reading out across the due tick must not push it back for good)
+let agentsPaneCheckedAt = 0
+const AGENTS_PANE_CHECK_EVERY = 3
+const AGENTS_IDLE_EVERY = 2
+const AGENTS_STUCK_TICKS = 5
 
 function watchAgents($: EngineInterface): void {
   if (agentsTicker !== undefined) return
+  agentsTick = 0
+  agentsOutSince = undefined
+  agentsPaneCheckedAt = 0
   agentsTicker = $.clock.every(
     AGENTS_TICK_MS,
     () =>
       void (async () => {
-        if (!(await $.ui.panes()).some(p => p.id === AGENTS_PANE)) return unwatchAgents()
-        await refreshAgents($)
+        const tick = ++agentsTick
+        if (agentsOutSince !== undefined && tick - agentsOutSince < AGENTS_STUCK_TICKS) return
+        agentsOutSince = tick
+        try {
+          if (tick - agentsPaneCheckedAt >= AGENTS_PANE_CHECK_EVERY) {
+            agentsPaneCheckedAt = tick
+            if (!(await $.ui.panes()).some(p => p.id === AGENTS_PANE)) return unwatchAgents()
+          }
+          if (agentsIdle && tick % AGENTS_IDLE_EVERY !== 0) return
+          await refreshAgents($)
+        } finally {
+          if (agentsOutSince === tick) agentsOutSince = undefined
+        }
       })().catch(() => undefined),
   )
 }
@@ -296,22 +326,45 @@ const actOf = (tool: string, input: Record<string, unknown>): { act: string; doi
 // when each agent's Now line was last written; module scope, so a reload only resets the pacing
 const actWrittenAt = new Map<string, number>()
 
+// each agent's record as this module last wrote or read it. Only noteAct writes the record, so the
+// copy is as good as a read: a call that repeats the last one costs no round trip at all, and one
+// inside the pacing window costs the clock alone. Module scope: a reload starts it empty and the
+// first call reads the record again.
+const actsKnown = new Map<string, AgentAct>()
+
+const knowAct = (agentId: string, act: AgentAct): void => {
+  // most recently written last, so the oldest goes first once there are more than the record keeps
+  actsKnown.delete(agentId)
+  actsKnown.set(agentId, act)
+  if (actsKnown.size > ACTS_KEEP) actsKnown.delete(actsKnown.keys().next().value as string)
+}
+
 // records the action of one tool call in an agent's loop. Best effort: it never throws.
 async function noteAct($: EngineInterface, agentId: string, tool: string, input: Record<string, unknown>): Promise<void> {
   try {
     const now = actOf(tool, input)
-    const at = await $.clock.now()
-    const was = (await read($, agentActs))[agentId]
+    let was = actsKnown.get(agentId)
     if (was !== undefined && was.act === now.act && was.doing === now.doing) return
+    const at = await $.clock.now()
+    if (was === undefined) {
+      was = (await read($, agentActs))[agentId]
+      if (was !== undefined) knowAct(agentId, was)
+      if (was !== undefined && was.act === now.act && was.doing === now.doing) return
+    }
     if (was !== undefined && was.act === now.act && at - (actWrittenAt.get(agentId) ?? 0) < ACT_WORDS_MS) return
     actWrittenAt.set(agentId, at)
-    await update($, agentActs, held =>
+    const act: AgentAct = { ...now, at }
+    const kept = await update($, agentActs, held =>
       Object.fromEntries(
-        Object.entries({ ...held, [agentId]: { ...now, at } })
+        Object.entries({ ...held, [agentId]: act })
           .sort((x, y) => y[1].at - x[1].at)
           .slice(0, ACTS_KEEP),
       ),
     )
+    // the write keeps the newest records by time, which need not be the ones this copy saw last:
+    // forget what it dropped, so that agent's next call reads the record and writes its act back
+    for (const id of [...actsKnown.keys()]) if (!(id in kept)) actsKnown.delete(id)
+    knowAct(agentId, act)
   } catch {
     // the panel keeps the agent's last action
   }
@@ -1788,6 +1841,8 @@ export const register: Register = on => {
   on('tool.call', ($, e, next) => {
     const call = e as unknown as Record<string, unknown> & { agentId?: unknown; tool?: unknown }
     if (typeof call.agentId === 'string' && call.agentId !== '' && typeof call.tool === 'string') {
+      // an agent is at work: the poll goes back to its full pace at its next tick
+      agentsIdle = false
       void noteAct($, call.agentId, call.tool, call).catch(() => undefined)
     }
 
@@ -1807,6 +1862,10 @@ export const register: Register = on => {
     const tokens = view.list.reduce((n, s) => n + s.tokens, 0)
     // every running agent and the latest finished ones get their crab; older rows stay text alone
     const crabbed = new Set([...live, ...done.slice(0, CRABS_FINISHED)].map(s => s.id))
+    // each walking crab is a dozen CSS animations the surface keeps repainting: only the newest few
+    // move, the rest stand at their costume
+    const animated = new Set(live.slice(0, CRABS_ANIMATED).map(s => s.id))
+    const isAnimated = (id: string) => animated.has(id)
 
     const row = (s: AgentSnap) => {
       const isLive = isLiveAgent(s.status)
@@ -1825,7 +1884,7 @@ export const register: Register = on => {
           {/* the drawing changes only with the costume, so a redraw of the row's figures leaves
               its motion running */}
           {Svg !== undefined && crabbed.has(s.id) && (
-            <Svg source={crabSvg(costume, isLive, !isLive)} alt={`crab, ${CRAB_WORD[costume] ?? 'at work'}`} width={40} height={41} />
+            <Svg source={crabSvg(costume, isLive && isAnimated(s.id), !isLive)} alt={`crab, ${CRAB_WORD[costume] ?? 'at work'}`} width={40} height={41} />
           )}
           <Box flexDirection="column" flexGrow={1}>
             <Box flexDirection="row" justifyContent="space-between" gap={1}>

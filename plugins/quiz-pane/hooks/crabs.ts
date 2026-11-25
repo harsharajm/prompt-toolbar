@@ -185,9 +185,23 @@ const COSTUMES: Record<string, (f: Fill) => void> = {
   },
 }
 
+// every drawing made so far, by costume and state: at most a dozen costumes times four states
+const svgCache = new Map<string, string>()
+
 // One crab as a whole SVG document. The same costume and state always give the same text, so a
-// redraw of the row hands the surface an unchanged drawing and the motion runs on undisturbed.
+// redraw of the row hands the surface an unchanged drawing and the motion runs on undisturbed. Each
+// is built once and handed back from then on.
 export const crabSvg = (costume: string, isWalking: boolean, isResting: boolean): string => {
+  const key = `${costume}|${isWalking ? 1 : 0}|${isResting ? 1 : 0}`
+  const hit = svgCache.get(key)
+  if (hit !== undefined) return hit
+  const svg = buildCrabSvg(costume, isWalking, isResting)
+  svgCache.set(key, svg)
+
+  return svg
+}
+
+const buildCrabSvg = (costume: string, isWalking: boolean, isResting: boolean): string => {
   const groups = new Map<string, string[]>([['bd', []]])
   const f: Fill = (x, y, w, h, c, cls = 'bd') => {
     if (!groups.has(cls)) groups.set(cls, [])
