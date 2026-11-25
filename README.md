@@ -58,11 +58,19 @@ For a zip you were sent, or **Code → Download ZIP** on GitHub:
 
 ## Update
 
+In the desktop app, in one step: type `/plugin`, open **Marketplaces**, pick **prompt-toolbar** and choose **Update marketplace**. That updates both plugins together. The same tab can turn on auto-update for prompt-toolbar, which is off by default for marketplaces other than Anthropic's.
+
+Or in a terminal:
+
 ```
 claude plugin marketplace update prompt-toolbar
 claude plugin update quiz-pane@prompt-toolbar
 claude plugin update theme-picker@prompt-toolbar
 ```
+
+The first command refreshes Claude Code's copy of this repository, and `claude plugin update` takes one plugin at a time, so there is one line for each.
+
+Either way, open a new chat in the desktop app, or type `/reload-plugins` in an open one, to load the new versions.
 
 ## Uninstall
 
